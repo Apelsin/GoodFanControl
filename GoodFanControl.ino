@@ -281,7 +281,11 @@ COROUTINE(ProcessValues)
     //
     // Q.E.D
     const float crossover = 0.5;
-    const float torque_power_coef = 2.0; // Depends on the degree of output feathering
+    
+    // Depends on the degree (filter order) of output feathering
+    const float torque_power_coef = 2.0;
+
+    // Calculate torque power (exponent) multiplier based on crossover and feathering
     float torque_power = torque_power_coef * pow(1.0 + Feathering, log(crossover) / log(1.0 - Feathering));
 
     // Scale the torque compensation by the minumum amount
