@@ -47,6 +47,8 @@ float TargetValue = 1.0;
 
 // Output parameters
 float PriorTorqueValue = 0.0, PriorValue = 0.0, OutputValue = 0.0;
+
+// Indicates a disparity between input value and validated target value
 int DeltaWarning = 0;
 
 // Constants used for display
@@ -111,9 +113,12 @@ void set_display4_message(SoftwareSerial& serial, const char* message)
 // Produces digits_out and decimal_place_out
 void display4_dtostrf(char* digits_out, int& decimal_place_out, int precision, float value)
 {
-  char value_str[6]; // 5 digits (including decimal) + \0 (null)
+  // 5 digits (including decimal) + \0 (null)
+  char value_str[6];
+
   //sprintf(formatted, "%5.*f", precision, value);
   dtostrf(value, 5, precision, value_str);
+
   int digit_count = 0;
   decimal_place_out = 3;
   for (int i = 0; i < 5 && digit_count < 4; i++)
@@ -148,9 +153,11 @@ void set_display4_float(SoftwareSerial& serial, int precision, float value)
 // Sets the brightness of the display connected by software serial
 void set_display_brightness_level(SoftwareSerial& serial, const byte brightness_level)
 {
-  serial.write(0x7A); // Brightness control command
+  // Brightness control command
+  serial.write(0x7A);
   byte brightness_level_limited = min(brightness_level, DISPLAY_MAX_BRIGHTNESS_LEVEL_LIMIT);
-  serial.write(100 - brightness_level_limited); // Brightness level is inverted for some reason?
+  // Brightness level is inverted for some reason?
+  serial.write(100 - brightness_level_limited);
 }
 
 // Sets the state of an indicator pin
