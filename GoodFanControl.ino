@@ -8,14 +8,20 @@
 #include <SoftwareSerial.h>
 #include <AceRoutine.h>
 
+#define USE_FAST_PWM
+
+#ifdef USE_FAST_PWM
+#include <PWM.h>
+#endif
+
 using namespace ace_routine;
 
 // Settings
 // Interpolant used for smoothing input to output
-float Feathering = 0.1;
+float Feathering = 0.02;
 
 // Minimum allowed valid target value (used to prevent motor stalling)
-float MinTargetValue = 0.20;
+float MinTargetValue = 0.10;
 
 // Minimum starting torque (inertia) compensation value
 float TorqueCompMinValue = 0.70;
@@ -24,26 +30,26 @@ float TorqueCompMinValue = 0.70;
 float DeltaWarningTolerance = 0.0001;
 
 // Time in milliseconds between value processing
-int ProcessValuesPeriod = 10;
+int ProcessValuesPeriod = 20;
 
 // Pinouts
 // Software serial connection to SparkFun 7-segment 4 digit LED readout display
-SoftwareSerial Serial7Segment(4, 2); // RX pin, TX pin
+SoftwareSerial Serial7Segment(2, 13); // RX pin, TX pin
 
 // Analog pin number used for delta warning indicator
 const int DELTA_WARNING_INDICATOR_PIN_NUMBER = 3;
 
 // Motor controller pins
 const int
-  MOTOR_CONTROLLER_ENA_PIN_NUMBER = 5,
+  MOTOR_CONTROLLER_ENA_PIN_NUMBER = 6,
   MOTOR_CONTROLLER_ENB_PIN_NUMBER = 10,
-  MOTOR_CONTROLLER_IN1_PIN_NUMBER = 6,
-  MOTOR_CONTROLLER_IN2_PIN_NUMBER = 7,
-  MOTOR_CONTROLLER_IN3_PIN_NUMBER = 8,
-  MOTOR_CONTROLLER_IN4_PIN_NUMBER = 9;
+  MOTOR_CONTROLLER_IN1_PIN_NUMBER = 7,
+  MOTOR_CONTROLLER_IN2_PIN_NUMBER = 8,
+  MOTOR_CONTROLLER_IN3_PIN_NUMBER = 9,
+  MOTOR_CONTROLLER_IN4_PIN_NUMBER = 11;
 
 // Input parameters
-float TargetValue = 1.0;
+float TargetValue = 0.0;
 
 // Output parameters
 float PriorTorqueValue = 0.0, PriorValue = 0.0, OutputValue = 0.0;
@@ -179,12 +185,59 @@ void set_indicator_pin(const int pin_number, IndicatorState state)
   analogWrite(pin_number, write_level);
 }
 
+#ifdef USE_FAST_PWM
+void _set_fast_pwm_auto(const uint8_t &timer, const char &abcd, const uint32_t &frequency_hz, const float &duty_cycle)
+{
+  if (duty_cycle <= 0.0001)
+    pwm.set(timer, abcd, frequency_hz, 1, true);
+  else if (duty_cycle >= 0.9999)
+    pwm.set(timer, abcd, frequency_hz, 1, false);
+  else
+  {
+    uint16_t divisor;
+    float t;
+    bool invert;
+    if (duty_cycle < 0.5)
+    {
+      t = duty_cycle;
+      invert = false;
+    }
+    else
+    {
+      t = 1.0 - duty_cycle;
+      invert = true;
+    }
+    divisor = min(lround(1.0 / t), 0xFFFF);
+    pwm.set(timer, abcd, frequency_hz, divisor, invert);
+  }
+}
+#endif
+
 // Sets the a motor controller's (signed) speed and direction given
 // an enable pin number for PWM and two pins for directional control
 void _set_motor(const int enable_pin, const int dir_0_pin, const int dir_1_pin, float speed)
 {
-  int speed_int = lround(255 * min(max(-1.0, speed), 1.0));
+  float speed_clamped = min(max(-1.0, speed), 1.0);
+  int speed_int = lround(255 * speed_clamped);
+#ifdef USE_FAST_PWM
+  switch (enable_pin)
+  {
+    case 5:
+      _set_fast_pwm_auto(3, 'a', 200000, speed_clamped);
+      break;
+    case 6:
+      _set_fast_pwm_auto(4, 'd', 1200000, speed_clamped);
+    case 10:
+      _set_fast_pwm_auto(4, 'b', 1200000, speed_clamped);
+      break;
+    default:
+      analogWrite(enable_pin, labs(speed_int));
+      break;
+  }
+#else
   analogWrite(enable_pin, labs(speed_int));
+#endif
+
   digitalWrite(dir_0_pin, speed_int > 0 ? HIGH : LOW);
   digitalWrite(dir_1_pin, speed_int < 0 ? HIGH : LOW);
 }
@@ -277,7 +330,7 @@ COROUTINE(ProcessValues)
     //    a' = a + (b - a) * t
     // or
     //    a' = a * (1 - t) + b * t
-    // 
+    //
     // To solve for the number of steps (n) to reach a given crossover point (c)
     // between normalized values a_0 = 1, b = 0, where c = (0,1)
     //
@@ -288,7 +341,7 @@ COROUTINE(ProcessValues)
     //
     // Q.E.D
     const float crossover = 0.5;
-    
+
     // Depends on the degree (filter order) of output feathering
     const float torque_power_coef = 2.0;
 
